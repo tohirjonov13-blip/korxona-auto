@@ -10,6 +10,147 @@ import tempfile, os, io, openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+def _make_excel(proc, ndfl, tmp_dir):
+    """Формирует Excel-отчёт без шаблона"""
+    try:
+        from processor import MAPPING
+    except ImportError:
+        MAPPING = {}
+
+    thin = Side(style="thin", color="CCCCCC")
+    BD   = Border(left=thin, right=thin, top=thin, bottom=thin)
+    WB   = Font(name="Arial", bold=True, color="FFFFFF", size=10)
+    DB   = Font(name="Arial", bold=True, color="1F3864", size=9)
+    DR   = Font(name="Arial", color="1F3864", size=9)
+    SR   = Font(name="Arial", color="555555", size=8)
+    DARK = PatternFill("solid", fgColor="1F3864")
+    MED  = PatternFill("solid", fgColor="2E75B6")
+    LBLU = PatternFill("solid", fgColor="D6E4F0")
+    GRAY = PatternFill("solid", fgColor="F5F5F5")
+    C    = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    L    = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    R    = Alignment(horizontal="right",  vertical="center")
+
+    def H(ws,r,c,v,f=MED):
+        cl=ws.cell(r,c,v); cl.fill=f; cl.border=BD; cl.font=WB; cl.alignment=C
+    def Ce(ws,r,c,v,f=None,fo=DR,al=L):
+        cl=ws.cell(r,c,v)
+        if f: cl.fill=f
+        cl.border=BD; cl.font=fo; cl.alignment=al
+    def Nu(ws,r,c,v,f=None):
+        cl=ws.cell(r,c,float(v) if v else 0)
+        if f: cl.fill=f
+        cl.border=BD; cl.font=DR; cl.alignment=R; cl.number_format="#,##0"
+
+    wb = openpyxl.Workbook()
+
+    # ── Главный лист ──────────────────────────────────────────────────
+    ws = wb.active; ws.title="1-korxona"
+    ws.column_dimensions["A"].width=8
+    ws.column_dimensions["B"].width=46
+    ws.column_dimensions["C"].width=20
+    ws.column_dimensions["D"].width=18
+    ws.column_dimensions["E"].width=18
+
+    inn = (ndfl.inn if ndfl else "—")
+    ws.merge_cells("A1:E1")
+    cl=ws["A1"]; cl.value=f"1-KORXONA | ИНН {inn} | 2025 год"
+    cl.fill=DARK; cl.font=WB; cl.alignment=C; ws.row_dimensions[1].height=28
+
+    H(ws,2,1,"Код"); H(ws,2,2,"Показатель")
+    H(ws,2,3,"Значение"); H(ws,2,4,"Нач. года"); H(ws,2,5,"Кон. года")
+    ws.row_dimensions[2].height=32
+
+    CHAPTERS = {
+        "Глава 1 — Доходы":            list(range(100,110)),
+        "Глава 2 — Затраты":           list(range(110,128)),
+        "Глава 3 — Запасы":            list(range(140,146)),
+        "Глава 4 — ИКТ":               list(range(150,153)),
+        "Глава 5 — Основные средства": list(range(160,172)),
+        "Глава 6 — Инвестиции":        list(range(180,187)),
+        "Глава 8 — Энергоресурсы":     list(range(301,310)),
+        "Глава 9 — Кадры":             list(range(401,417)),
+        "Глава 10 — Выплаты":          list(range(417,425)),
+    }
+
+    row=3
+    for chapter, codes in CHAPTERS.items():
+        ws.merge_cells(f"A{row}:E{row}")
+        cl=ws.cell(row,1,chapter); cl.fill=MED; cl.font=WB
+        cl.alignment=L; cl.border=BD; ws.row_dimensions[row].height=20
+        row+=1
+        for code in codes:
+            res=proc.results.get(code)
+            if res is None: continue
+            cfg=MAPPING.get(code,{})
+            fl=LBLU if row%2==0 else GRAY
+            Ce(ws,row,1,code,fl,SR,C)
+            Ce(ws,row,2,cfg.get("desc",f"Код {code}"),fl,DB)
+            yv=res.get("year"); bv=res.get("begin"); ev=res.get("end")
+            if yv is not None: Nu(ws,row,3,yv,fl)
+            else: Ce(ws,row,3,"—",fl,SR,C)
+            if bv is not None: Nu(ws,row,4,bv,fl)
+            else: Ce(ws,row,4,"—",fl,SR,C)
+            if ev is not None: Nu(ws,row,5,ev,fl)
+            else: Ce(ws,row,5,"—",fl,SR,C)
+            ws.row_dimensions[row].height=15
+            row+=1
+
+    # ── Лист НДФЛ ─────────────────────────────────────────────────────
+    if ndfl:
+        ws2=wb.create_sheet("НДФЛ")
+        ws2.column_dimensions["A"].width=42; ws2.column_dimensions["B"].width=22
+        ws2.merge_cells("A1:B1")
+        cl=ws2["A1"]; cl.value="НДФЛ-РАСЧЁТ"; cl.fill=DARK; cl.font=WB; cl.alignment=C
+        rows=[
+            ("Общие доходы (010)",      ndfl.calc.total_income),
+            ("Доходы ОТ (011)",          ndfl.calc.labor_income),
+            ("  ЗП в периоде (0110)",    ndfl.calc.salary_period),
+            ("Доходы не ОТ (012)",       ndfl.calc.non_labor_income),
+            ("Освобождённые (030)",      ndfl.calc.exempt_income),
+            ("НДФЛ начисл. (060)",       ndfl.calc.ndfl_accrued),
+            ("Итого НДФЛ+СН (070)",      ndfl.calc.total_tax),
+            ("Сотрудников (Прил.4)",     len(ndfl.employees)),
+            ("Призовых (Прил.5)",        len(ndfl.prize_employees)),
+        ]
+        for i,(lbl,val) in enumerate(rows):
+            r=i+2; fl=LBLU if i%2==0 else GRAY
+            Ce(ws2,r,1,lbl,fl,DB if not lbl.startswith(" ") else DR)
+            Nu(ws2,r,2,val,fl)
+            ws2.row_dimensions[r].height=16
+
+        # Список сотрудников
+        ws3=wb.create_sheet("Сотрудники")
+        for col,w in zip("ABCDEFGHIJ",[4,36,14,18,10,10,12,18,16,14]):
+            ws3.column_dimensions[col].width=w
+        ws3.merge_cells("A1:J1")
+        cl=ws3["A1"]; cl.value="ПРИЛОЖЕНИЕ 4 — Сотрудники"; cl.fill=DARK; cl.font=WB; cl.alignment=C
+        hdrs=["№","Ф.И.О.","Должность","ПИНФЛ","Резидент","Статус","Контракт","Доход (сум)","НДФЛ (сум)","Ставка"]
+        for i,h in enumerate(hdrs,1): H(ws3,2,i,h)
+        CMAP={1:"Основной",2:"Совместитель",3:"ГПХ","1":"Основной","2":"Совместитель","3":"ГПХ"}
+        SMAP={1:"Работает",2:"Уволен","1":"Работает","2":"Уволен"}
+        RMAP={1:"Резидент",2:"Нерезидент","1":"Резидент","2":"Нерезидент"}
+        RED=PatternFill("solid",fgColor="FDDEDE")
+        YEL=PatternFill("solid",fgColor="FFF9C4")
+        for i,e in enumerate(ndfl.employees):
+            r=i+3
+            fl=(RED if e.is_fired else YEL if e.is_nonresident else
+                PatternFill("solid",fgColor="D6E4F0") if e.is_gph else
+                GRAY if i%2==0 else None)
+            Ce(ws3,r,1,e.num,fl,SR,C); Ce(ws3,r,2,e.name,fl,DB)
+            Ce(ws3,r,3,e.position,fl,SR); Ce(ws3,r,4,e.pinfl,fl,SR,C)
+            Ce(ws3,r,5,RMAP.get(e.resident,"?"),fl,SR,C)
+            Ce(ws3,r,6,SMAP.get(e.status,"?"),fl,SR,C)
+            Ce(ws3,r,7,CMAP.get(e.contract,"?"),fl,SR,C)
+            Nu(ws3,r,8,e.total_income,fl); Nu(ws3,r,9,e.ndfl_total,fl)
+            Ce(ws3,r,10,e.work_rate,fl,SR,C)
+            ws3.row_dimensions[r].height=14
+
+    path=os.path.join(tmp_dir,"1korxona.xlsx")
+    wb.save(path); return path
+
+
+
 st.set_page_config(
     page_title="1-Korxona · Автозаполнение",
     page_icon="📊",
@@ -383,143 +524,3 @@ if st.button("⬇ Сформировать 1-korxona.xlsx", type="primary",
             st.error(f"Ошибка: {e}")
             import traceback
             with st.expander("Детали"): st.code(traceback.format_exc())
-
-
-def _make_excel(proc, ndfl, tmp_dir):
-    """Формирует Excel-отчёт без шаблона"""
-    try:
-        from processor import MAPPING
-    except ImportError:
-        MAPPING = {}
-
-    thin = Side(style="thin", color="CCCCCC")
-    BD   = Border(left=thin, right=thin, top=thin, bottom=thin)
-    WB   = Font(name="Arial", bold=True, color="FFFFFF", size=10)
-    DB   = Font(name="Arial", bold=True, color="1F3864", size=9)
-    DR   = Font(name="Arial", color="1F3864", size=9)
-    SR   = Font(name="Arial", color="555555", size=8)
-    DARK = PatternFill("solid", fgColor="1F3864")
-    MED  = PatternFill("solid", fgColor="2E75B6")
-    LBLU = PatternFill("solid", fgColor="D6E4F0")
-    GRAY = PatternFill("solid", fgColor="F5F5F5")
-    C    = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    L    = Alignment(horizontal="left",   vertical="center", wrap_text=True)
-    R    = Alignment(horizontal="right",  vertical="center")
-
-    def H(ws,r,c,v,f=MED):
-        cl=ws.cell(r,c,v); cl.fill=f; cl.border=BD; cl.font=WB; cl.alignment=C
-    def Ce(ws,r,c,v,f=None,fo=DR,al=L):
-        cl=ws.cell(r,c,v)
-        if f: cl.fill=f
-        cl.border=BD; cl.font=fo; cl.alignment=al
-    def Nu(ws,r,c,v,f=None):
-        cl=ws.cell(r,c,float(v) if v else 0)
-        if f: cl.fill=f
-        cl.border=BD; cl.font=DR; cl.alignment=R; cl.number_format="#,##0"
-
-    wb = openpyxl.Workbook()
-
-    # ── Главный лист ──────────────────────────────────────────────────
-    ws = wb.active; ws.title="1-korxona"
-    ws.column_dimensions["A"].width=8
-    ws.column_dimensions["B"].width=46
-    ws.column_dimensions["C"].width=20
-    ws.column_dimensions["D"].width=18
-    ws.column_dimensions["E"].width=18
-
-    inn = (ndfl.inn if ndfl else "—")
-    ws.merge_cells("A1:E1")
-    cl=ws["A1"]; cl.value=f"1-KORXONA | ИНН {inn} | 2025 год"
-    cl.fill=DARK; cl.font=WB; cl.alignment=C; ws.row_dimensions[1].height=28
-
-    H(ws,2,1,"Код"); H(ws,2,2,"Показатель")
-    H(ws,2,3,"Значение"); H(ws,2,4,"Нач. года"); H(ws,2,5,"Кон. года")
-    ws.row_dimensions[2].height=32
-
-    CHAPTERS = {
-        "Глава 1 — Доходы":            list(range(100,110)),
-        "Глава 2 — Затраты":           list(range(110,128)),
-        "Глава 3 — Запасы":            list(range(140,146)),
-        "Глава 4 — ИКТ":               list(range(150,153)),
-        "Глава 5 — Основные средства": list(range(160,172)),
-        "Глава 6 — Инвестиции":        list(range(180,187)),
-        "Глава 8 — Энергоресурсы":     list(range(301,310)),
-        "Глава 9 — Кадры":             list(range(401,417)),
-        "Глава 10 — Выплаты":          list(range(417,425)),
-    }
-
-    row=3
-    for chapter, codes in CHAPTERS.items():
-        ws.merge_cells(f"A{row}:E{row}")
-        cl=ws.cell(row,1,chapter); cl.fill=MED; cl.font=WB
-        cl.alignment=L; cl.border=BD; ws.row_dimensions[row].height=20
-        row+=1
-        for code in codes:
-            res=proc.results.get(code)
-            if res is None: continue
-            cfg=MAPPING.get(code,{})
-            fl=LBLU if row%2==0 else GRAY
-            Ce(ws,row,1,code,fl,SR,C)
-            Ce(ws,row,2,cfg.get("desc",f"Код {code}"),fl,DB)
-            yv=res.get("year"); bv=res.get("begin"); ev=res.get("end")
-            if yv is not None: Nu(ws,row,3,yv,fl)
-            else: Ce(ws,row,3,"—",fl,SR,C)
-            if bv is not None: Nu(ws,row,4,bv,fl)
-            else: Ce(ws,row,4,"—",fl,SR,C)
-            if ev is not None: Nu(ws,row,5,ev,fl)
-            else: Ce(ws,row,5,"—",fl,SR,C)
-            ws.row_dimensions[row].height=15
-            row+=1
-
-    # ── Лист НДФЛ ─────────────────────────────────────────────────────
-    if ndfl:
-        ws2=wb.create_sheet("НДФЛ")
-        ws2.column_dimensions["A"].width=42; ws2.column_dimensions["B"].width=22
-        ws2.merge_cells("A1:B1")
-        cl=ws2["A1"]; cl.value="НДФЛ-РАСЧЁТ"; cl.fill=DARK; cl.font=WB; cl.alignment=C
-        rows=[
-            ("Общие доходы (010)",      ndfl.calc.total_income),
-            ("Доходы ОТ (011)",          ndfl.calc.labor_income),
-            ("  ЗП в периоде (0110)",    ndfl.calc.salary_period),
-            ("Доходы не ОТ (012)",       ndfl.calc.non_labor_income),
-            ("Освобождённые (030)",      ndfl.calc.exempt_income),
-            ("НДФЛ начисл. (060)",       ndfl.calc.ndfl_accrued),
-            ("Итого НДФЛ+СН (070)",      ndfl.calc.total_tax),
-            ("Сотрудников (Прил.4)",     len(ndfl.employees)),
-            ("Призовых (Прил.5)",        len(ndfl.prize_employees)),
-        ]
-        for i,(lbl,val) in enumerate(rows):
-            r=i+2; fl=LBLU if i%2==0 else GRAY
-            Ce(ws2,r,1,lbl,fl,DB if not lbl.startswith(" ") else DR)
-            Nu(ws2,r,2,val,fl)
-            ws2.row_dimensions[r].height=16
-
-        # Список сотрудников
-        ws3=wb.create_sheet("Сотрудники")
-        for col,w in zip("ABCDEFGHIJ",[4,36,14,18,10,10,12,18,16,14]):
-            ws3.column_dimensions[col].width=w
-        ws3.merge_cells("A1:J1")
-        cl=ws3["A1"]; cl.value="ПРИЛОЖЕНИЕ 4 — Сотрудники"; cl.fill=DARK; cl.font=WB; cl.alignment=C
-        hdrs=["№","Ф.И.О.","Должность","ПИНФЛ","Резидент","Статус","Контракт","Доход (сум)","НДФЛ (сум)","Ставка"]
-        for i,h in enumerate(hdrs,1): H(ws3,2,i,h)
-        CMAP={1:"Основной",2:"Совместитель",3:"ГПХ","1":"Основной","2":"Совместитель","3":"ГПХ"}
-        SMAP={1:"Работает",2:"Уволен","1":"Работает","2":"Уволен"}
-        RMAP={1:"Резидент",2:"Нерезидент","1":"Резидент","2":"Нерезидент"}
-        RED=PatternFill("solid",fgColor="FDDEDE")
-        YEL=PatternFill("solid",fgColor="FFF9C4")
-        for i,e in enumerate(ndfl.employees):
-            r=i+3
-            fl=(RED if e.is_fired else YEL if e.is_nonresident else
-                PatternFill("solid",fgColor="D6E4F0") if e.is_gph else
-                GRAY if i%2==0 else None)
-            Ce(ws3,r,1,e.num,fl,SR,C); Ce(ws3,r,2,e.name,fl,DB)
-            Ce(ws3,r,3,e.position,fl,SR); Ce(ws3,r,4,e.pinfl,fl,SR,C)
-            Ce(ws3,r,5,RMAP.get(e.resident,"?"),fl,SR,C)
-            Ce(ws3,r,6,SMAP.get(e.status,"?"),fl,SR,C)
-            Ce(ws3,r,7,CMAP.get(e.contract,"?"),fl,SR,C)
-            Nu(ws3,r,8,e.total_income,fl); Nu(ws3,r,9,e.ndfl_total,fl)
-            Ce(ws3,r,10,e.work_rate,fl,SR,C)
-            ws3.row_dimensions[r].height=14
-
-    path=os.path.join(tmp_dir,"1korxona.xlsx")
-    wb.save(path); return path
