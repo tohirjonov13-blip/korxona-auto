@@ -18,18 +18,9 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-/* ── Принудительно светлая тема ── */
-[data-testid="stAppViewContainer"],
-[data-testid="stMain"],
-section[data-testid="stMain"] > div,
-.main .block-container {
-    background-color: #f8fafc !important;
-}
-
-/* ── Шапка ── */
+/* ── Шапка — тёмная полоса, работает в обоих режимах ── */
 .app-header {
     background: #1a3c5e;
-    color: white;
     padding: 1.2rem 1.5rem;
     border-radius: 10px;
     margin-bottom: 1.5rem;
@@ -40,47 +31,28 @@ section[data-testid="stMain"] > div,
 .app-header h1 { margin:0; font-size:1.25rem; font-weight:600; color:#fff; }
 .app-header p  { margin:.2rem 0 0; font-size:.82rem; color:#93c5e8; }
 
-/* ── Шаги (прогресс) ── */
-.step-bar {
-    display: flex;
-    background: #fff;
-    border: 0.5px solid #e2e8f0;
-    border-radius: 10px;
-    overflow: hidden;
-    margin-bottom: 1.5rem;
-}
-.step-item {
-    flex: 1;
-    padding: .6rem .5rem;
-    text-align: center;
-    font-size: .78rem;
-    color: #94a3b8;
-    border-right: 0.5px solid #e2e8f0;
-}
-.step-item:last-child { border-right: none; }
-.step-item.active { color: #1a3c5e; font-weight: 600; background: #eff6ff; }
-.step-item.done   { color: #15803d; background: #f0fdf4; }
-
-/* ── Заголовки секций ── */
+/* ── Заголовки шагов ── */
 .step-hdr {
-    font-size: .85rem;
+    font-size: .82rem;
     font-weight: 600;
-    color: #475569;
+    color: var(--text-color);
     text-transform: uppercase;
     letter-spacing: .06em;
     margin: 1.4rem 0 .7rem;
     display: flex;
     align-items: center;
     gap: 8px;
+    opacity: .7;
 }
 .step-hdr::after {
     content: '';
     flex: 1;
     height: 0.5px;
-    background: #e2e8f0;
+    background: currentColor;
+    opacity: .2;
 }
 
-/* ── Карточки проверок ── */
+/* ── Карточки проверок — семантические CSS-переменные Streamlit ── */
 .chk-ok, .chk-warn, .chk-err {
     display: flex;
     gap: 10px;
@@ -92,69 +64,40 @@ section[data-testid="stMain"] > div,
     line-height: 1.5;
     border: 0.5px solid;
 }
-.chk-ok   { background:#f0fdf4; border-color:#86efac; color:#14532d; }
-.chk-warn { background:#fffbeb; border-color:#fcd34d; color:#78350f; }
-.chk-err  { background:#fef2f2; border-color:#fca5a5; color:#7f1d1d; }
+.chk-ok   {
+    background: rgba(34,197,94,.12);
+    border-color: rgba(34,197,94,.35);
+    color: var(--text-color);
+}
+.chk-warn {
+    background: rgba(245,158,11,.12);
+    border-color: rgba(245,158,11,.35);
+    color: var(--text-color);
+}
+.chk-err  {
+    background: rgba(239,68,68,.12);
+    border-color: rgba(239,68,68,.35);
+    color: var(--text-color);
+}
 
+/* Иконки — фиксированные цвета, читаются в любом режиме */
 .chk-icon {
     width: 20px; height: 20px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     font-size: 11px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+    color: #fff;
 }
-.chk-ok   .chk-icon { background: #22c55e; color: #fff; }
-.chk-warn .chk-icon { background: #f59e0b; color: #fff; }
-.chk-err  .chk-icon { background: #ef4444; color: #fff; }
+.chk-ok   .chk-icon { background: #22c55e; }
+.chk-warn .chk-icon { background: #f59e0b; }
+.chk-err  .chk-icon { background: #ef4444; }
 
 .chk-title { font-weight: 600; font-size: .88rem; }
-.chk-desc  { font-size: .82rem; opacity: .8; margin-top: 2px; }
-.chk-tip   { font-size: .78rem; color: #1d4ed8; margin-top: 4px; }
-
-/* ── Поля ввода ── */
-.field-section {
-    background: #fff;
-    border: 0.5px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 1rem 1.1rem;
-    margin: .5rem 0;
+.chk-desc  { font-size: .82rem; opacity: .75; margin-top: 2px; }
+.chk-tip   {
+    font-size: .78rem;
+    color: #3b82f6;
+    margin-top: 4px;
 }
-.field-section-title {
-    font-size: .8rem;
-    font-weight: 600;
-    color: #475569;
-    margin-bottom: .7rem;
-    text-transform: uppercase;
-    letter-spacing: .05em;
-}
-
-/* ── Метрики ── */
-.metrics-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin: 1rem 0 1.2rem;
-}
-.metric-card {
-    background: #fff;
-    border: 0.5px solid #e2e8f0;
-    border-radius: 8px;
-    padding: .8rem;
-    text-align: center;
-}
-.metric-val { font-size: 1.5rem; font-weight: 700; color: #1a3c5e; }
-.metric-lbl { font-size: .7rem; color: #94a3b8; margin-top: 2px; }
-.metric-card.danger .metric-val { color: #dc2626; }
-.metric-card.danger { background: #fef2f2; border-color: #fca5a5; }
-.metric-card.warn   .metric-val { color: #d97706; }
-.metric-card.warn   { background: #fffbeb; border-color: #fcd34d; }
-.metric-card.ok     .metric-val { color: #16a34a; }
-.metric-card.ok     { background: #f0fdf4; border-color: #86efac; }
-
-/* ── Убираем тёмные фоны у виджетов Streamlit ── */
-.stFileUploader > div { background: #fff !important; border-color: #e2e8f0 !important; }
-.stExpander { background: #fff !important; border-color: #e2e8f0 !important; }
-[data-testid="stExpander"] { background: #fff !important; }
-.stNumberInput input { background: #fff !important; color: #1e293b !important; }
-div[data-testid="metric-container"] { background: #fff; border: 0.5px solid #e2e8f0; border-radius: 8px; padding: .5rem; }
 </style>
 """, unsafe_allow_html=True)
 
