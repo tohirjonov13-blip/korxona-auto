@@ -161,58 +161,103 @@ class KorxonaProcessor:
         s = re.sub(r"[^0-9]", "", s)
         return s.zfill(3) if s else None
 
+    def _read_xltx(self, path):
+        """Читает Excel/xltx — пробует лист list02 (формат 1С), иначе первый лист с данными."""
+        path = str(path)
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        sheets = wb.sheetnames
+        wb.close()
+        # list02 обычно содержит данные в формате 1С
+        for sh in ['list02', 'list01'] + sheets:
+            if sh not in sheets:
+                continue
+            try:
+                df = pd.read_excel(path, sheet_name=sh, header=None, engine='openpyxl')
+                # Есть ли числа?
+                has_nums = any(isinstance(v,(int,float)) and pd.notna(v) and v not in (0,)
+                               for row in df.values for v in row)
+                if has_nums:
+                    return df
+            except Exception:
+                continue
+        return pd.read_excel(path, sheet_name=sheets[0], header=None, engine='openpyxl')
+
+    def _find_code_col(self, df):
+        """Находит индекс колонки с кодами строк (010, 020 и т.д.)"""
+        best_col, best_count = 0, 0
+        for ci in range(min(df.shape[1], 6)):
+            count = sum(1 for v in df.iloc[:,ci]
+                        if self._normalize_code(v) and len(self._normalize_code(v)) >= 2)
+            if count > best_count:
+                best_col, best_count = ci, count
+        return best_col if best_count > 0 else None
+
     def parse_f1(self):
         """Парсинг Формы 1 (Бухгалтерский баланс).
-        Ожидаемая структура: колонки [Наименование, Код, Начало года, Конец года]
+        Поддерживает .xlsx и .xltx (шаблоны 1С с листами list01/list02).
+        Структура: [Наименование, Код, Нач.года, Кон.года]
         """
         if not self.f1_path or not self.f1_path.exists():
             log.warning("Форма 1 не предоставлена, пропускаем.")
             return
 
-        df = pd.read_excel(self.f1_path, header=None)
+        df = self._read_xltx(self.f1_path)
         log.info(f"Форма 1: загружено {len(df)} строк")
 
+        code_col = self._find_code_col(df)
+        if code_col is None:
+            log.warning("Форма 1: не найдена колонка с кодами строк")
+            return
+
         for _, row in df.iterrows():
-            vals = [v for v in row.values]
-            # Ищем строки, где есть числовой код строки
-            code = None
-            begin_val = end_val = None
-            for j, v in enumerate(vals):
-                c = self._normalize_code(v)
-                if c and len(c) <= 4:
-                    code = c
-                    # Берём следующие числовые значения как начало/конец
-                    nums = [x for x in vals[j+1:] if isinstance(x, (int, float)) and pd.notna(x)]
-                    if len(nums) >= 2:
-                        begin_val, end_val = nums[0], nums[1]
-                    elif len(nums) == 1:
-                        begin_val = nums[0]
-                    break
-            if code:
-                self.f1_data[code] = {"begin": begin_val or 0, "end": end_val or 0}
+            vals = list(row.values)
+            if code_col >= len(vals):
+                continue
+            code = self._normalize_code(vals[code_col])
+            if not code or len(code) > 4:
+                continue
+            # Числа правее колонки кода
+            nums = [v for v in vals[code_col+1:code_col+5]
+                    if isinstance(v,(int,float)) and pd.notna(v)]
+            self.f1_data[code] = {
+                "begin": nums[0] if len(nums) > 0 else 0,
+                "end":   nums[1] if len(nums) > 1 else 0,
+            }
 
         log.info(f"Форма 1: распознано {len(self.f1_data)} строк")
 
     def parse_f2(self):
-        """Парсинг Формы 2 (ОПУ / Отчёт о прибылях и убытках).
-        Ожидаемая структура: колонки [Наименование, Код, Отчётный год, Предыдущий год]
+        """Парсинг Формы 2 (ОПУ).
+        Поддерживает .xlsx и .xltx.
+        В xltx-формате 1С: код в col 2, доходы отч.года в col 5, расходы в col 6.
+        В обычном xlsx: код рядом с первым числом.
         """
         if not self.f2_path or not self.f2_path.exists():
             log.warning("Форма 2 не предоставлена, пропускаем.")
             return
 
-        df = pd.read_excel(self.f2_path, header=None)
+        df = self._read_xltx(self.f2_path)
         log.info(f"Форма 2: загружено {len(df)} строк")
+
+        code_col = self._find_code_col(df)
+        if code_col is None:
+            log.warning("Форма 2: не найдена колонка с кодами строк")
+            return
 
         for _, row in df.iterrows():
             vals = list(row.values)
-            for j, v in enumerate(vals):
-                c = self._normalize_code(v)
-                if c and len(c) <= 4:
-                    nums = [x for x in vals[j+1:] if isinstance(x, (int, float)) and pd.notna(x)]
-                    if nums:
-                        self.f2_data[c] = nums[0]  # берём отчётный год
-                    break
+            if code_col >= len(vals):
+                continue
+            code = self._normalize_code(vals[code_col])
+            if not code or len(code) > 4:
+                continue
+
+            # Для xltx 1С: доход идёт перед расходом в парах колонок
+            # Берём ВСЕ числа правее кода, выбираем первое ненулевое
+            nums_with_idx = [(i, v) for i, v in enumerate(vals[code_col+1:code_col+8], code_col+1)
+                             if isinstance(v,(int,float)) and pd.notna(v) and str(v) not in ('x',)]
+            if nums_with_idx:
+                self.f2_data[code] = nums_with_idx[0][1]
 
         log.info(f"Форма 2: распознано {len(self.f2_data)} строк")
 
@@ -224,7 +269,7 @@ class KorxonaProcessor:
             log.warning("ОСВ не предоставлена, пропускаем.")
             return
 
-        df = pd.read_excel(self.osv_path, header=None)
+        df = pd.read_excel(self.osv_path, header=None, engine='openpyxl')
         log.info(f"ОСВ: загружено {len(df)} строк")
 
         for _, row in df.iterrows():
@@ -258,7 +303,7 @@ class KorxonaProcessor:
             log.warning("Файл персонала не предоставлен, пропускаем.")
             return
 
-        df = pd.read_excel(self.personnel_path, header=None)
+        df = pd.read_excel(self.personnel_path, header=None, engine='openpyxl')
         # Поддерживаем как словарный формат (ключ-значение), так и поиск по ключевым словам
         for _, row in df.iterrows():
             if len(row) >= 2:
