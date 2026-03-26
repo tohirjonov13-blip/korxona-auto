@@ -18,20 +18,156 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.step-hdr { font-size:1.05rem; font-weight:600; color:#1a3c5e;
-    border-left:4px solid #2d6a9f; padding:2px 0 2px 10px; margin:1.5rem 0 .8rem; }
-.chk-ok   { background:#f0fdf4; border-left:4px solid #22c55e;
-    padding:.55rem 1rem; border-radius:0 6px 6px 0; margin:.3rem 0; font-size:.87rem; }
-.chk-warn { background:#fffbeb; border-left:4px solid #f59e0b;
-    padding:.55rem 1rem; border-radius:0 6px 6px 0; margin:.3rem 0; font-size:.87rem; }
-.chk-err  { background:#fef2f2; border-left:4px solid #ef4444;
-    padding:.55rem 1rem; border-radius:0 6px 6px 0; margin:.3rem 0; font-size:.87rem; }
+/* ── Принудительно светлая тема ── */
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+section[data-testid="stMain"] > div,
+.main .block-container {
+    background-color: #f8fafc !important;
+}
+
+/* ── Шапка ── */
+.app-header {
+    background: #1a3c5e;
+    color: white;
+    padding: 1.2rem 1.5rem;
+    border-radius: 10px;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.app-header h1 { margin:0; font-size:1.25rem; font-weight:600; color:#fff; }
+.app-header p  { margin:.2rem 0 0; font-size:.82rem; color:#93c5e8; }
+
+/* ── Шаги (прогресс) ── */
+.step-bar {
+    display: flex;
+    background: #fff;
+    border: 0.5px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+}
+.step-item {
+    flex: 1;
+    padding: .6rem .5rem;
+    text-align: center;
+    font-size: .78rem;
+    color: #94a3b8;
+    border-right: 0.5px solid #e2e8f0;
+}
+.step-item:last-child { border-right: none; }
+.step-item.active { color: #1a3c5e; font-weight: 600; background: #eff6ff; }
+.step-item.done   { color: #15803d; background: #f0fdf4; }
+
+/* ── Заголовки секций ── */
+.step-hdr {
+    font-size: .85rem;
+    font-weight: 600;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin: 1.4rem 0 .7rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.step-hdr::after {
+    content: '';
+    flex: 1;
+    height: 0.5px;
+    background: #e2e8f0;
+}
+
+/* ── Карточки проверок ── */
+.chk-ok, .chk-warn, .chk-err {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    border-radius: 8px;
+    padding: .7rem .9rem;
+    margin: .4rem 0;
+    font-size: .88rem;
+    line-height: 1.5;
+    border: 0.5px solid;
+}
+.chk-ok   { background:#f0fdf4; border-color:#86efac; color:#14532d; }
+.chk-warn { background:#fffbeb; border-color:#fcd34d; color:#78350f; }
+.chk-err  { background:#fef2f2; border-color:#fca5a5; color:#7f1d1d; }
+
+.chk-icon {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+}
+.chk-ok   .chk-icon { background: #22c55e; color: #fff; }
+.chk-warn .chk-icon { background: #f59e0b; color: #fff; }
+.chk-err  .chk-icon { background: #ef4444; color: #fff; }
+
+.chk-title { font-weight: 600; font-size: .88rem; }
+.chk-desc  { font-size: .82rem; opacity: .8; margin-top: 2px; }
+.chk-tip   { font-size: .78rem; color: #1d4ed8; margin-top: 4px; }
+
+/* ── Поля ввода ── */
+.field-section {
+    background: #fff;
+    border: 0.5px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    margin: .5rem 0;
+}
+.field-section-title {
+    font-size: .8rem;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: .7rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+/* ── Метрики ── */
+.metrics-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin: 1rem 0 1.2rem;
+}
+.metric-card {
+    background: #fff;
+    border: 0.5px solid #e2e8f0;
+    border-radius: 8px;
+    padding: .8rem;
+    text-align: center;
+}
+.metric-val { font-size: 1.5rem; font-weight: 700; color: #1a3c5e; }
+.metric-lbl { font-size: .7rem; color: #94a3b8; margin-top: 2px; }
+.metric-card.danger .metric-val { color: #dc2626; }
+.metric-card.danger { background: #fef2f2; border-color: #fca5a5; }
+.metric-card.warn   .metric-val { color: #d97706; }
+.metric-card.warn   { background: #fffbeb; border-color: #fcd34d; }
+.metric-card.ok     .metric-val { color: #16a34a; }
+.metric-card.ok     { background: #f0fdf4; border-color: #86efac; }
+
+/* ── Убираем тёмные фоны у виджетов Streamlit ── */
+.stFileUploader > div { background: #fff !important; border-color: #e2e8f0 !important; }
+.stExpander { background: #fff !important; border-color: #e2e8f0 !important; }
+[data-testid="stExpander"] { background: #fff !important; }
+.stNumberInput input { background: #fff !important; color: #1e293b !important; }
+div[data-testid="metric-container"] { background: #fff; border: 0.5px solid #e2e8f0; border-radius: 8px; padding: .5rem; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("## 📊 1-Korxona · Автозаполнение")
-st.caption("Загрузите файлы из 1С — система заполнит отчёт и проверит данные")
-st.divider()
+# ── Шапка ──────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="app-header">
+  <div style="font-size:1.6rem">📊</div>
+  <div>
+    <h1>1-Korxona · Автозаполнение</h1>
+    <p>Статистический отчёт РУз · Загрузите файлы из 1С</p>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ─── session state ────────────────────────────────────────────────────────────
 for k, v in dict(parsed=False, checked=False, skip_warn=False,
@@ -43,7 +179,7 @@ S = st.session_state
 # ══════════════════════════════════════════════════════════════════════
 # ШАГ 1 — ЗАГРУЗКА
 # ══════════════════════════════════════════════════════════════════════
-st.markdown('<div class="step-hdr">Шаг 1 — Загрузите файлы из 1С</div>',
+st.markdown('<div class="step-hdr"><span>①</span> Загрузите файлы из 1С</div>',
             unsafe_allow_html=True)
 
 c1, c2 = st.columns(2)
@@ -127,7 +263,7 @@ if not S.parsed:
 # ШАГ 2 — ПРОВЕРКИ
 # ══════════════════════════════════════════════════════════════════════
 st.divider()
-st.markdown('<div class="step-hdr">Шаг 2 — Результаты проверок</div>',
+st.markdown('<div class="step-hdr"><span>②</span> Результаты проверок</div>',
             unsafe_allow_html=True)
 
 if S.summary is None:
@@ -150,16 +286,23 @@ else:
         S.checked = True
     else:
         for r in problems:
-            css  = "chk-err"  if r.severity == Severity.CRITICAL else "chk-warn"
-            icon = "❌" if r.severity == Severity.CRITICAL else "⚠️"
-            rec  = (f'<br><span style="color:#2563eb;font-size:.81rem">💡 {r.recommendation}</span>'
-                    if r.recommendation else "")
-            st.markdown(
-                f'<div class="{css}"><strong>{icon} {r.title}</strong>'
-                f'<br><span style="color:#475569;font-size:.83rem">{r.description}</span>'
-                f'{rec}</div>', unsafe_allow_html=True)
+            if r.severity == Severity.CRITICAL:
+                css, icon_char, icon_bg = "chk-err", "✕", "#ef4444"
+            else:
+                css, icon_char, icon_bg = "chk-warn", "!", "#f59e0b"
+            rec = (f'<div class="chk-tip">💡 {r.recommendation}</div>'
+                   if r.recommendation else "")
+            st.markdown(f"""
+            <div class="{css}">
+              <div class="chk-icon" style="background:{icon_bg}">{icon_char}</div>
+              <div>
+                <div class="chk-title">{r.title}</div>
+                <div class="chk-desc">{r.description}</div>
+                {rec}
+              </div>
+            </div>""", unsafe_allow_html=True)
             if r.affected:
-                with st.expander(f"Показать ({len(r.affected)})"):
+                with st.expander(f"Подробнее ({len(r.affected)})"):
                     for x in r.affected: st.markdown(f"• {x}")
 
         blocking = [r for r in crit if not r.can_skip]
@@ -184,7 +327,7 @@ if not S.checked:
 # ШАГ 3 — РУЧНЫЕ ПОЛЯ
 # ══════════════════════════════════════════════════════════════════════
 st.divider()
-st.markdown('<div class="step-hdr">Шаг 3 — Дополните данные вручную</div>',
+st.markdown('<div class="step-hdr"><span>③</span> Дополните данные вручную</div>',
             unsafe_allow_html=True)
 
 proc = S.proc
@@ -266,7 +409,7 @@ with st.expander("⚡ Глава 8 — Энергоресурсы (если пр
 # ШАГ 4 — ГЕНЕРАЦИЯ
 # ══════════════════════════════════════════════════════════════════════
 st.divider()
-st.markdown('<div class="step-hdr">Шаг 4 — Скачать готовый отчёт</div>',
+st.markdown('<div class="step-hdr"><span>④</span> Скачать готовый отчёт</div>',
             unsafe_allow_html=True)
 
 if ndfl:
