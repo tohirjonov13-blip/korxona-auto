@@ -18,110 +18,206 @@ log = logging.getLogger(__name__)
 # МАППИНГ: код строки → источник данных
 # ─────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────
+# МАППИНГ по шпаргалке TAVAT consulting (проверено на реальных файлах)
+#
+# Источники:
+#   f1       — Форма 1 (Баланс), строка берётся из col "both" (нач/кон)
+#   f2       — Форма 2 (ОПУ), столбец 5 = доходы, столбец 6 = расходы
+#   f2_sum   — Сумма нескольких строк Ф2
+#   f2_exp   — Строка Ф2, столбец расходов (col 6 в xltx)
+#   osv_dt   — ОСВ, оборот Дебет счёта (÷1000 при osv_div1000=True)
+#   osv_kt   — ОСВ, оборот Кредит счёта (÷1000 при osv_div1000=True)
+#   osv_beg  — ОСВ, сальдо начало (begin_debit)
+#   osv_end  — ОСВ, сальдо конец (end_debit)
+#   ndfl     — НДФЛ-расчёт (строка, колонка, ÷1000)
+#   calc     — Расчётная формула из других кодов
+#   manual   — Ручной ввод бухгалтером
+# ─────────────────────────────────────────────────────────────────────
+
 MAPPING = {
-    # ── Глава 1: Доходы ──────────────────────────────────────────────────
-    # Код 101: Оборот (выручка без НДС) → Ф2, строка 010 (Чистая выручка)
-    101: {"source": "f2", "row_code": "010", "col": "year", "desc": "Оборот организации (без НДС)"},
+    # ══ Глава 1: Доходы ═══════════════════════════════════════════════
+    # 101 = Ф2 стр.010 столбец 5 (чистая выручка, доходы)
+    101: {"source": "f2",     "row_code": "010", "col": "income",
+          "desc": "Оборот организации (без НДС)"},
 
-    # Код 102: Продукция собственного производства → Ф2 строка 020 (если есть)
-    102: {"source": "f2", "row_code": "020", "col": "year", "desc": "Продукция собственного производства"},
+    # 102 = Ф2 стр.020 столбец 5 (продукция собственного потребления)
+    102: {"source": "f2",     "row_code": "020", "col": "income",
+          "desc": "Продукция собственного производства для внутр. нужд"},
 
-    # Код 103: Прочие доходы → Ф2, строка 200 (Прочие доходы)
-    103: {"source": "f2", "row_code": "200", "col": "year", "desc": "Прочие доходы"},
+    # 103 = Ф2 стр.090 + стр.110 столбец 5 (прочие операционные доходы)
+    103: {"source": "f2_sum", "row_codes": ["090", "110"], "col": "income",
+          "desc": "Прочие доходы"},
 
-    # Код 104: Доходы от оперативной аренды → Ф2 строка 210
-    104: {"source": "f2", "row_code": "210", "col": "year", "desc": "Доходы от оперативной аренды"},
+    # 104 = ОСВ счёт 9300/93 кредит оборот (доходы от аренды)
+    104: {"source": "osv_kt", "accounts": ["9300", "930", "93"],
+          "osv_div1000": True,
+          "desc": "Доходы от оперативной аренды"},
 
-    # Код 105: Дивиденды полученные → Ф2 строка 220
-    105: {"source": "f2", "row_code": "220", "col": "year", "desc": "Доходы в виде дивидендов"},
+    # 105 = Ф2 стр.120 столбец 5 (дивиденды полученные)
+    105: {"source": "f2",     "row_code": "120", "col": "income",
+          "desc": "Доходы в виде дивидендов"},
 
-    # Код 106: Целевые поступления → Ф2 строка 230
-    106: {"source": "f2", "row_code": "230", "col": "year", "desc": "Целевые поступления"},
+    # 106 = Ф2 стр.130 столбец 5 (проценты полученные)
+    106: {"source": "f2",     "row_code": "130", "col": "income",
+          "desc": "Целевые поступления"},
 
-    # Код 109: Общие доходы = 101+102+103 (рассчитывается автоматически)
-    109: {"source": "calc", "formula": "101+102+103", "desc": "Общие доходы"},
+    # 109 = 101 + 102 + 103 (контрольное соотношение)
+    109: {"source": "calc", "formula": "101+102+103",
+          "desc": "Общие доходы (101+102+103)"},
 
-    # ── Глава 2: Затраты ──────────────────────────────────────────────────
-    # Код 110: Затраты всего → Ф2 строка 400 (Совокупные расходы)
-    110: {"source": "f2", "row_code": "400", "col": "year", "desc": "Затраты – всего"},
+    # ══ Глава 2: Затраты ══════════════════════════════════════════════
+    # 110 = 111 + 127 (затраты всего = себест.+расходы + финансовые расходы)
+    110: {"source": "calc", "formula": "111+127",
+          "desc": "Затраты – всего"},
 
-    # Код 111: Себестоимость и расходы периода → Ф2 строка 040+090+110
-    111: {"source": "f2_sum", "row_codes": ["040", "090", "110"], "col": "year", "desc": "Себестоимость и расходы периода"},
+    # 111 = Ф2 стр.020 + стр.040 столбец 6 (себестоимость + расходы периода)
+    111: {"source": "f2_sum_exp", "row_codes": ["020", "040"], "col": "expense",
+          "desc": "Себестоимость и расходы периода"},
 
-    # Код 112: Стоимость товаров для перепродажи → Ф2 строка 040
-    112: {"source": "f2", "row_code": "040", "col": "year", "desc": "Стоимость товаров для перепродажи"},
+    # 112 = ОСВ счёт 9120 Дебет оборот (товары для перепродажи)
+    #       Если субсчёт 9120 отсутствует — берём 9100
+    112: {"source": "osv_dt", "accounts": ["9120", "9100"],
+          "osv_div1000": True,
+          "desc": "Стоимость товаров для перепродажи (сч.9120)"},
 
-    # Код 113: Материальные затраты → ОСВ счета 20,23,25,26 (субстатьи материалов)
-    113: {"source": "osv", "accounts": ["2010", "2310", "2510", "2610"], "desc": "Материальные затраты"},
+    # 113 = ОСВ счёт 1000 Дебет оборот (материальные затраты)
+    113: {"source": "osv_dt", "accounts": ["1000", "1010", "1020", "1030"],
+          "osv_div1000": True,
+          "desc": "Материальные затраты"},
 
-    # Код 117: Затраты на оплату труда → ОСВ счёт 6710 (оборот по Дт) или Ф2
-    117: {"source": "osv", "accounts": ["6710"], "col": "debit_turnover", "desc": "Затраты на оплату труда"},
+    # 117 = НДФЛ стр.011 колонка 3 ÷ 1000 (ФОТ начисленный)
+    117: {"source": "ndfl",   "ndfl_row": "011", "ndfl_col": 3, "ndfl_div1000": True,
+          "desc": "Затраты на оплату труда"},
 
-    # Код 118: ЕСН (отчисления соцстрах) → ОСВ счёт 6520
-    118: {"source": "osv", "accounts": ["6520"], "col": "debit_turnover", "desc": "Отчисления на соц. страхование"},
+    # 118 = НДФЛ стр.060 колонка 4 ÷ 1000  ИЛИ  ОСВ сч.6500 Дт оборот ÷ 1000
+    118: {"source": "osv_dt", "accounts": ["6500", "6510", "6520"],
+          "osv_div1000": True,
+          "desc": "Отчисления на социальное страхование (ЕСН)"},
 
-    # Код 119: Амортизация ОС и НМА → ОСВ счёт 0200 оборот или Ф1
-    119: {"source": "osv", "accounts": ["0200", "0400"], "col": "credit_turnover", "desc": "Амортизация ОС и НМА"},
+    # 119 = ОСВ счёт 0200 Кредит оборот ÷ 1000 (амортизация ОС)
+    119: {"source": "osv_kt", "accounts": ["0200", "0210"],
+          "osv_div1000": True,
+          "desc": "Амортизация ОС и НМА"},
 
-    # ── Глава 3: Запасы ───────────────────────────────────────────────────
-    # Код 140: Производственные запасы → Ф1 строка 140 (нач./кон.)
-    140: {"source": "f1", "row_code": "140", "col": "both", "desc": "Производственные запасы"},
+    # 127 = Ф2 стр.170 столбец 6 (расходы от финансовой деятельности)
+    127: {"source": "f2",     "row_code": "170", "col": "expense",
+          "desc": "Расходы по финансовой деятельности"},
 
-    # Код 141: Незавершённое производство → Ф1 строка 150
-    141: {"source": "f1", "row_code": "150", "col": "both", "desc": "Незавершённое производство"},
+    # ══ Глава 3: Запасы ═══════════════════════════════════════════════
+    # 140 = Ф1 стр.150 нач/кон (производственные запасы)
+    140: {"source": "f1", "row_code": "150", "col": "both",
+          "desc": "Производственные запасы"},
 
-    # Код 142: Готовая продукция → Ф1 строка 160
-    142: {"source": "f1", "row_code": "160", "col": "both", "desc": "Готовая продукция"},
+    # 141 = Ф1 стр.160 нач/кон (незавершённое производство)
+    141: {"source": "f1", "row_code": "160", "col": "both",
+          "desc": "Незавершённое производство"},
 
-    # Код 143: Товары → Ф1 строка 170
-    143: {"source": "f1", "row_code": "170", "col": "both", "desc": "Товары"},
+    # 142 = Ф1 стр.170 нач/кон (готовая продукция)
+    142: {"source": "f1", "row_code": "170", "col": "both",
+          "desc": "Готовая продукция (по рыночным ценам)"},
 
-    # ── Глава 4: ИКТ ──────────────────────────────────────────────────────
-    # Код 150: Затраты на ИКТ → ОСВ счёт 9400 субсчета ИКТ (ручной ввод)
+    # 143 = Ф1 стр.180 нач/кон (товары по себестоимости)
+    143: {"source": "f1", "row_code": "180", "col": "both",
+          "desc": "Товары (в закупочных ценах)"},
+
+    # ══ Глава 4: ИКТ ══════════════════════════════════════════════════
     150: {"source": "manual", "desc": "Затраты на ИКТ – всего"},
+    151: {"source": "manual", "desc": "  из них на программное обеспечение"},
+    152: {"source": "manual", "desc": "  за услуги хостинга"},
 
-    # ── Глава 5: Основные средства ────────────────────────────────────────
-    # Код 160: ОС по первоначальной стоимости → Ф1 строка 010 (нач./кон.)
-    160: {"source": "f1", "row_code": "010", "col": "both", "desc": "ОС по первоначальной стоимости"},
+    # ══ Глава 5: Основные средства ════════════════════════════════════
+    # 160 = Ф1 стр.010 нач/кон (ОС первоначальная стоимость)
+    160: {"source": "f1", "row_code": "010", "col": "both",
+          "desc": "ОС по первоначальной стоимости"},
 
-    # Код 161: Сумма износа ОС → Ф1 строка 011 (нач./кон.)
-    161: {"source": "f1", "row_code": "011", "col": "both", "desc": "Сумма износа ОС"},
+    # 161 = Ф1 стр.011 нач/кон (износ ОС)
+    161: {"source": "f1", "row_code": "011", "col": "both",
+          "desc": "Сумма износа ОС"},
 
-    # Код 162: Незавершённое строительство → Ф1 строка 030
-    162: {"source": "f1", "row_code": "030", "col": "both", "desc": "Незавершённое строительство"},
+    # 162 = Ф1 стр.090 + стр.100 нач/кон (незавершённое строительство)
+    162: {"source": "f1_sum", "row_codes": ["090", "100"], "col": "both",
+          "desc": "Незавершённое строительство"},
 
-    # Код 163: НМА по первоначальной стоимости → Ф1 строка 040
-    163: {"source": "f1", "row_code": "040", "col": "both", "desc": "НМА по первоначальной стоимости"},
+    # 163 = Ф1 стр.020 нач/кон (НМА первоначальная стоимость)
+    163: {"source": "f1", "row_code": "020", "col": "both",
+          "desc": "НМА по первоначальной стоимости"},
 
-    # Код 164: Амортизация НМА → Ф1 строка 041
-    164: {"source": "f1", "row_code": "041", "col": "both", "desc": "Амортизация НМА"},
+    # 164 = Ф1 стр.021 нач/кон (амортизация НМА)
+    164: {"source": "f1", "row_code": "021", "col": "both",
+          "desc": "Сумма амортизации НМА"},
 
-    # ── Глава 9: Персонал ─────────────────────────────────────────────────
-    # Коды 401–416 — из отдельного файла/ручного ввода по персоналу
-    401: {"source": "personnel", "field": "avg_headcount_for_salary", "col": "year", "desc": "Численность для исчисления ЗП"},
-    403: {"source": "personnel", "field": "total_wage_fund", "col": "year", "desc": "Начисленные доходы (ФОТ)"},
-    404: {"source": "personnel", "field": "wage_fund_with_workbooks", "col": "year", "desc": "ФОТ работников с трудовыми книжками"},
-    405: {"source": "personnel", "field": "headcount_with_workbooks_endyear", "col": "year", "desc": "Численность с трудкнижками на конец года"},
-    409: {"source": "personnel", "field": "avg_headcount_with_workbooks", "col": "year", "desc": "Среднегодовая численность с трудкнижками"},
-    411: {"source": "personnel", "field": "avg_external_parttime", "col": "year", "desc": "Внешние совместители (среднегодовые)"},
-    412: {"source": "personnel", "field": "avg_gph_workers", "col": "year", "desc": "Работники по ГПХ (среднегодовые)"},
-    # Код 413 = 409 + 411 + 412 (рассчитывается)
-    413: {"source": "calc", "formula": "409+411+412", "desc": "Среднегодовая численность (включая совместителей и ГПХ)"},
-    416: {"source": "personnel", "field": "total_labor_costs", "col": "year", "desc": "Всего расходов на содержание рабочей силы"},
+    # 165 = ОСВ счёт 0100 Кредит оборот ÷ 1000 (выбытие ОС)
+    165: {"source": "osv_kt", "accounts": ["0100", "0110"],
+          "osv_div1000": True,
+          "desc": "Выбыло ОС по первоначальной стоимости"},
 
-    # ── Глава 10: Выплаты физическим лицам ───────────────────────────────
-    417: {"source": "personnel", "field": "interests_paid", "col": "year", "desc": "Проценты"},
-    418: {"source": "personnel", "field": "dividends_paid", "col": "year", "desc": "Дивиденды"},
-    419: {"source": "personnel", "field": "material_benefit", "col": "year", "desc": "Материальная выгода"},
-    420: {"source": "personnel", "field": "material_aid", "col": "year", "desc": "Материальная помощь"},
-    421: {"source": "personnel", "field": "author_fees", "col": "year", "desc": "Авторское вознаграждение"},
-    422: {"source": "personnel", "field": "severance_pay", "col": "year", "desc": "Выходное пособие"},
+    # 169 = ОСВ счёт 0100 Дебет оборот ÷ 1000 (поступление ОС)
+    169: {"source": "osv_dt", "accounts": ["0100", "0110"],
+          "osv_div1000": True,
+          "desc": "Поступило ОС по первоначальной стоимости"},
+
+    # ══ Глава 6: Инвестиции ═══════════════════════════════════════════
+    # 180 = код 169 (инвестиции в ОС = поступление ОС)
+    180: {"source": "calc", "formula": "169",
+          "desc": "Инвестиции в основной капитал"},
+
+    # 181 = ОСВ счёт 0400/04 Дебет оборот ÷ 1000 (непроизв. нефин. активы — земля)
+    181: {"source": "osv_dt", "accounts": ["0400", "040", "04"],
+          "osv_div1000": True,
+          "desc": "Стоимость непроизведённых нефинансовых активов"},
+
+    # 183 = код 169 − код 170 (приобретение б/у ОС у других лиц)
+    183: {"source": "calc", "formula": "169-170",
+          "desc": "Стоимость приобретённых ОС у других лиц"},
+
+    # ══ Глава 9: Кадры ════════════════════════════════════════════════
+    401: {"source": "personnel", "field": "avg_headcount_for_salary",
+          "desc": "Численность для исчисления ЗП"},
+    403: {"source": "personnel", "field": "total_wage_fund",
+          "desc": "Начисленные доходы (ФОТ)"},
+    404: {"source": "personnel", "field": "wage_fund_with_workbooks",
+          "desc": "ФОТ работников с трудовыми книжками"},
+    405: {"source": "personnel", "field": "headcount_with_workbooks_endyear",
+          "desc": "Численность с трудкнижками на конец года"},
+    409: {"source": "personnel", "field": "avg_headcount_with_workbooks",
+          "desc": "Среднегодовая численность с трудкнижками"},
+    411: {"source": "personnel", "field": "avg_external_parttime",
+          "desc": "Внешние совместители (среднегодовые)"},
+    412: {"source": "personnel", "field": "avg_gph_workers",
+          "desc": "Работники по ГПХ (среднегодовые)"},
+    413: {"source": "calc", "formula": "409+411+412",
+          "desc": "Среднегодовая численность (вкл. совм. и ГПХ)"},
+    416: {"source": "personnel", "field": "total_labor_costs",
+          "desc": "Всего расходов на содержание рабочей силы"},
+
+    # ══ Глава 10: Выплаты физлицам ════════════════════════════════════
+    417: {"source": "personnel", "field": "interests_paid",   "desc": "Проценты"},
+    418: {"source": "personnel", "field": "dividends_paid",   "desc": "Дивиденды"},
+    419: {"source": "personnel", "field": "material_benefit", "desc": "Материальная выгода"},
+    420: {"source": "personnel", "field": "material_aid",     "desc": "Материальная помощь"},
+    421: {"source": "personnel", "field": "author_fees",      "desc": "Авторское вознаграждение"},
+    422: {"source": "personnel", "field": "severance_pay",    "desc": "Выходное пособие"},
+    423: {"source": "manual",    "desc": "Компенсационные выплаты"},
+    424: {"source": "manual",    "desc": "Средства на обучение"},
 }
 
-# Контрольные соотношения (формулы)
+# ── Контрольные соотношения ────────────────────────────────────────────
 CONTROL_RATIOS = {
-    "109 = 101+102+103": lambda r: abs(r.get(109, 0) - (r.get(101, 0) + r.get(102, 0) + r.get(103, 0))) < 1,
-    "413 = 409+411+412": lambda r: abs(r.get(413, 0) - (r.get(409, 0) + r.get(411, 0) + r.get(412, 0))) < 1,
+    "109 = 101+102+103": lambda r: abs(
+        (r.get(109,{}).get("year") or 0) -
+        ((r.get(101,{}).get("year") or 0) +
+         (r.get(102,{}).get("year") or 0) +
+         (r.get(103,{}).get("year") or 0))) < 1,
+    "413 = 409+411+412": lambda r: abs(
+        (r.get(413,{}).get("year") or 0) -
+        ((r.get(409,{}).get("year") or 0) +
+         (r.get(411,{}).get("year") or 0) +
+         (r.get(412,{}).get("year") or 0))) < 1,
+    "110 = 111+127": lambda r: abs(
+        (r.get(110,{}).get("year") or 0) -
+        ((r.get(111,{}).get("year") or 0) +
+         (r.get(127,{}).get("year") or 0))) < 1,
 }
 
 
@@ -137,6 +233,7 @@ class KorxonaProcessor:
         self.f1_data = {}      # {row_code: {"begin": val, "end": val}}
         self.f2_data = {}      # {row_code: val}
         self.osv_data = {}     # {account: {"debit_turnover": val, "credit_turnover": val, ...}}
+        self.ndfl_data = {}    # {row_code: value} — из НДФЛ-расчёта
         self.personnel_data = {}  # {field: val}
         self.results = {}      # {code: {"begin": val, "end": val, "year": val}}
         self.warnings = []
@@ -252,46 +349,119 @@ class KorxonaProcessor:
             if not code or len(code) > 4:
                 continue
 
-            # Для xltx 1С: доход идёт перед расходом в парах колонок
-            # Берём ВСЕ числа правее кода, выбираем первое ненулевое
-            nums_with_idx = [(i, v) for i, v in enumerate(vals[code_col+1:code_col+8], code_col+1)
-                             if isinstance(v,(int,float)) and pd.notna(v) and str(v) not in ('x',)]
-            if nums_with_idx:
-                self.f2_data[code] = nums_with_idx[0][1]
+            # Ф2 имеет структуру: доходы (столбец 5) и расходы (столбец 6)
+            # Сохраняем оба значения отдельно
+            nums = [(i, v) for i, v in enumerate(vals[code_col+1:code_col+8], code_col+1)
+                    if isinstance(v,(int,float)) and pd.notna(v) and str(v) not in ('x',)]
+            if len(nums) >= 2:
+                # Первое ненулевое = доход, второе = расход
+                income_val  = next((v for _,v in nums if v != 0), 0)
+                # Ищем расход: обычно второй ненулевой
+                nz = [v for _,v in nums if v != 0]
+                expense_val = nz[1] if len(nz) >= 2 else 0
+                self.f2_data[code] = {"income": income_val, "expense": expense_val}
+            elif len(nums) == 1:
+                self.f2_data[code] = {"income": nums[0][1], "expense": 0}
 
         log.info(f"Форма 2: распознано {len(self.f2_data)} строк")
 
     def parse_osv(self):
         """Парсинг ОСВ (Оборотно-сальдовая ведомость из 1С).
-        Ожидаемая структура: [Счёт, Сальдо нач Дт, Сальдо нач Кт, Оборот Дт, Оборот Кт, Сальдо кон Дт, Сальдо кон Кт]
+
+        Поддерживает форматы 1С:
+          - .xls  (старый Excel, конвертируется через LibreOffice)
+          - .xlsx (новый Excel)
+
+        Структура строки ОСВ из 1С:
+          col 0: "XXXX, Название счёта"
+          col 2: Сальдо нач Дт
+          col 3: Сальдо нач Кт
+          col 4: Оборот Дт
+          col 5: Оборот Кт
+          col 7: Сальдо кон Дт
+          col 8: Сальдо кон Кт
+
+        Все значения в СУМАХ (делится на 1000 при извлечении, если osv_div1000=True).
         """
         if not self.osv_path or not self.osv_path.exists():
             log.warning("ОСВ не предоставлена, пропускаем.")
             return
 
-        df = pd.read_excel(self.osv_path, header=None, engine='openpyxl')
+        path = str(self.osv_path)
+
+        # .xls — конвертируем через LibreOffice
+        if path.lower().endswith(".xls"):
+            import subprocess, tempfile, shutil
+            tmp_dir = tempfile.mkdtemp()
+            try:
+                result = subprocess.run(
+                    ["libreoffice", "--headless", "--convert-to", "xlsx",
+                     "--outdir", tmp_dir, path],
+                    capture_output=True, timeout=30
+                )
+                converted = [f for f in __import__("os").listdir(tmp_dir)
+                             if f.endswith(".xlsx")]
+                if converted:
+                    path = __import__("os").path.join(tmp_dir, converted[0])
+                    log.info(f"ОСВ: .xls конвертирован в {path}")
+                else:
+                    log.warning("ОСВ: конвертация .xls не удалась, пробуем напрямую")
+            except Exception as e:
+                log.warning(f"ОСВ: ошибка конвертации {e}")
+
+        try:
+            df = pd.read_excel(path, header=None, engine='openpyxl')
+        except Exception:
+            df = pd.read_excel(path, header=None)
         log.info(f"ОСВ: загружено {len(df)} строк")
+
+        # Определяем формат: 1С (col 0 = "XXXX, Название") или обычный
+        # Признак 1С: первая колонка содержит строки вида "0100, Основные средства"
+        is_1c_format = any(
+            re.match(r"^\d{2,4},", str(row.iloc[0]).strip())
+            for _, row in df.iterrows()
+            if pd.notna(row.iloc[0])
+        )
 
         for _, row in df.iterrows():
             vals = list(row.values)
-            # Первая колонка — счёт
             acct_raw = str(vals[0]).strip() if pd.notna(vals[0]) else ""
-            acct = re.sub(r"[^0-9]", "", acct_raw)
-            if not acct or len(acct) < 2:
+
+            if not acct_raw or acct_raw in ("nan", "Итого", ""):
                 continue
-            nums = [float(x) if isinstance(x, (int, float)) and pd.notna(x) else 0 for x in vals[1:]]
-            if len(nums) >= 6:
+
+            # Код счёта: берём цифры до запятой (1С) или все начальные цифры
+            if is_1c_format:
+                acct = acct_raw.split(",")[0].strip()
+                # Индексы колонок в формате 1С: нач_Дт=2, нач_Кт=3, об_Дт=4, об_Кт=5, кон_Дт=7, кон_Кт=8
+                def g(idx):
+                    if idx >= len(vals): return 0.0
+                    v = vals[idx]
+                    try: return float(v) if pd.notna(v) else 0.0
+                    except: return 0.0
                 self.osv_data[acct] = {
-                    "begin_debit": nums[0], "begin_credit": nums[1],
-                    "debit_turnover": nums[2], "credit_turnover": nums[3],
-                    "end_debit": nums[4], "end_credit": nums[5],
+                    "begin_debit":    g(2), "begin_credit":  g(3),
+                    "debit_turnover": g(4), "credit_turnover": g(5),
+                    "end_debit":      g(7), "end_credit":    g(8),
                 }
-            elif len(nums) >= 2:
-                self.osv_data[acct] = {
-                    "begin_debit": 0, "begin_credit": 0,
-                    "debit_turnover": nums[0], "credit_turnover": nums[1],
-                    "end_debit": 0, "end_credit": 0,
-                }
+            else:
+                # Обычный формат: счёт в col 0, затем числа подряд
+                acct = re.sub(r"[^0-9]", "", acct_raw)
+                if not acct or len(acct) < 2:
+                    continue
+                nums = []
+                for v in vals[1:]:
+                    try:
+                        nums.append(float(v) if pd.notna(v) else 0.0)
+                    except:
+                        nums.append(0.0)
+                if len(nums) >= 4:
+                    self.osv_data[acct] = {
+                        "begin_debit":    nums[0], "begin_credit":  nums[1],
+                        "debit_turnover": nums[2], "credit_turnover": nums[3],
+                        "end_debit":      nums[4] if len(nums) > 4 else 0,
+                        "end_credit":     nums[5] if len(nums) > 5 else 0,
+                    }
 
         log.info(f"ОСВ: распознано {len(self.osv_data)} счетов")
 
@@ -324,81 +494,126 @@ class KorxonaProcessor:
             return {"begin": data.get("begin", 0), "end": data.get("end", 0)}
         return data.get(col, 0)
 
-    def _get_f2(self, row_code):
-        return self.f2_data.get(row_code.zfill(3), 0)
+    def _get_f2(self, row_code, col="income"):
+        """Получить значение из Ф2.
+        col="income"  → первое числовое значение (доходы, столбец 5 в xltx)
+        col="expense" → второе числовое значение (расходы, столбец 6 в xltx)
+        """
+        row_data = self.f2_data.get(row_code.zfill(3))
+        if row_data is None:
+            return 0
+        if isinstance(row_data, dict):
+            return row_data.get(col, 0) or 0
+        return row_data or 0
 
-    def _get_osv_sum(self, accounts, col="credit_turnover"):
-        total = 0
+    def _get_osv(self, accounts, col, div1000=False):
+        """Получить сумму по счетам ОСВ.
+        Ищет по точному совпадению и по первым символам (префикс).
+        """
+        total = 0.0
         for acct in accounts:
-            # Поиск по точному совпадению и по префиксу
             for key, vals in self.osv_data.items():
-                if key == acct or key.startswith(acct):
-                    total += vals.get(col, 0)
-        return total
+                # Точное совпадение или префикс (напр. "9300" найдёт "9300", "9310" и т.д.)
+                if key == acct or (len(acct) <= 4 and key.startswith(acct)):
+                    total += vals.get(col, 0) or 0
+        return total / 1000 if div1000 else total
 
     def _get_personnel(self, field):
-        # Прямой поиск или поиск по ключевым словам
-        val = self.personnel_data.get(field, None)
+        val = self.personnel_data.get(field)
         if val is None:
-            # Поиск по частичному совпадению
             for k, v in self.personnel_data.items():
                 if field.lower() in k:
                     return float(v) if isinstance(v, (int, float)) else 0
         return float(val) if val is not None else 0
 
     def compute(self):
-        """Вычислить все значения согласно маппингу"""
+        """Вычислить все значения согласно маппингу (по шпаргалке TAVAT)"""
         computed = {}
 
         for code, cfg in MAPPING.items():
-            src = cfg["source"]
+            src  = cfg["source"]
             desc = cfg["desc"]
+            div  = cfg.get("osv_div1000", False)
 
             try:
+                # ── Форма 1 ───────────────────────────────────────────────
                 if src == "f1":
-                    col = cfg.get("col", "both")
-                    if col == "both":
-                        v = self._get_f1(cfg["row_code"], "both")
-                        computed[code] = {"begin": v["begin"], "end": v["end"], "year": None}
-                    else:
-                        computed[code] = {"year": self._get_f1(cfg["row_code"], col)}
+                    v = self._get_f1(cfg["row_code"], "both")
+                    computed[code] = {"begin": v["begin"], "end": v["end"], "year": None}
 
+                elif src == "f1_sum":
+                    # Сумма нескольких строк Ф1 (нач/кон отдельно)
+                    begin = sum(self._get_f1(rc,"both")["begin"] for rc in cfg["row_codes"])
+                    end   = sum(self._get_f1(rc,"both")["end"]   for rc in cfg["row_codes"])
+                    computed[code] = {"begin": begin, "end": end, "year": None}
+
+                # ── Форма 2 ───────────────────────────────────────────────
                 elif src == "f2":
-                    computed[code] = {"year": self._get_f2(cfg["row_code"])}
+                    col = cfg.get("col", "income")
+                    computed[code] = {"year": self._get_f2(cfg["row_code"], col)}
 
                 elif src == "f2_sum":
-                    total = sum(self._get_f2(rc) for rc in cfg["row_codes"])
+                    # Сумма строк Ф2, доходный столбец
+                    total = sum(self._get_f2(rc, "income") for rc in cfg["row_codes"])
                     computed[code] = {"year": total}
 
-                elif src == "osv":
-                    col = cfg.get("col", "credit_turnover")
-                    total = self._get_osv_sum(cfg["accounts"], col)
+                elif src == "f2_sum_exp":
+                    # Сумма строк Ф2, расходный столбец (Код 111)
+                    total = sum(self._get_f2(rc, "expense") for rc in cfg["row_codes"])
                     computed[code] = {"year": total}
 
+                # ── ОСВ ───────────────────────────────────────────────────
+                elif src == "osv_dt":
+                    total = self._get_osv(cfg["accounts"], "debit_turnover",  div)
+                    computed[code] = {"year": total}
+
+                elif src == "osv_kt":
+                    total = self._get_osv(cfg["accounts"], "credit_turnover", div)
+                    computed[code] = {"year": total}
+
+                elif src == "osv_end":
+                    total = self._get_osv(cfg["accounts"], "end_debit", div)
+                    computed[code] = {"year": total}
+
+                # ── НДФЛ-расчёт ───────────────────────────────────────────
+                elif src == "ndfl":
+                    # Берётся из ndfl_data если есть, иначе 0
+                    val = self.ndfl_data.get(cfg.get("ndfl_row", ""), 0) or 0
+                    if cfg.get("ndfl_div1000"):
+                        val = val / 1000
+                    computed[code] = {"year": val}
+
+                # ── Персонал ──────────────────────────────────────────────
                 elif src == "personnel":
                     computed[code] = {"year": self._get_personnel(cfg["field"])}
 
+                # ── Ручной ввод ───────────────────────────────────────────
                 elif src == "manual":
-                    computed[code] = {"year": 0}  # заполняется вручную
+                    computed[code] = {"year": 0}
                     self.warnings.append(f"Код {code} ({desc}): требует ручного ввода")
 
+                # ── Формула ───────────────────────────────────────────────
                 elif src == "calc":
-                    # Рассчитывается после первого прохода
                     computed[code] = {"year": None, "_formula": cfg["formula"]}
 
             except Exception as e:
                 log.warning(f"Код {code} ({desc}): ошибка — {e}")
                 computed[code] = {"year": 0}
 
-        # Второй проход: вычисляем формулы
+        # Второй проход — вычисляем формулы (поддержка + и -)
         for code, vals in computed.items():
             if vals.get("_formula"):
                 formula = vals["_formula"]
-                parts = re.findall(r"\d+", formula)
+                # Парсим формулу вида "101+102+103" или "169-170"
                 total = 0
-                for p in parts:
-                    dep = computed.get(int(p), {})
-                    total += dep.get("year") or 0
+                tokens = re.findall(r"([+-]?)(\d+)", formula)
+                for sign, num_str in tokens:
+                    dep_code = int(num_str)
+                    dep_val  = (computed.get(dep_code, {}).get("year") or 0)
+                    if sign == "-":
+                        total -= dep_val
+                    else:
+                        total += dep_val
                 computed[code] = {"year": total}
 
         self.results = computed
@@ -410,15 +625,17 @@ class KorxonaProcessor:
 
     def validate(self):
         """Проверка контрольных соотношений"""
-        # Плоский словарь для проверки
-        flat = {code: (v.get("year") or 0) for code, v in self.results.items()}
         errors = []
         for name, check_fn in CONTROL_RATIOS.items():
-            if not check_fn(flat):
-                val_parts = {}
-                for p in re.findall(r"\d+", name):
-                    val_parts[int(p)] = flat.get(int(p), 0)
-                errors.append({"ratio": name, "values": val_parts})
+            try:
+                if not check_fn(self.results):
+                    val_parts = {}
+                    for p in re.findall(r"\d+", name):
+                        c = int(p)
+                        val_parts[c] = (self.results.get(c, {}).get("year") or 0)
+                    errors.append({"ratio": name, "values": val_parts})
+            except Exception as e:
+                log.warning(f"Ошибка контрольного соотношения {name}: {e}")
         return errors
 
     # ──────────────────────────────────────────────────────────────────────
